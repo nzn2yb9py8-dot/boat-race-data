@@ -1,7 +1,9 @@
-name: ボートレース公式データ取得テスト
+name: ボートレース公式データの毎日取得
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '17 21 * * *'
 
 permissions:
   contents: read
@@ -10,37 +12,33 @@ jobs:
   download:
     runs-on: ubuntu-latest
     steps:
-      - name: 2026年11月11日の番組表と競走成績を取得
+      - name: 前日の番組表と競走成績を取得
+        id: fetch
         shell: bash
         run: |
-          set -u
-          base=https://www1.mbrace.or.jp/od2
-          failed=0
+          set -euo pipefail
+          export TZ=Asia/Tokyo
+          day=$(date -d yesterday +%Y%m%d)
+          month=${day:0:6}
+          short_day=${day:2}
+          mkdir -p official
 
-          for item in B:b K:k; do
-            directory=${item%:*}
-            prefix=${item#*:}
-            file="${prefix}261111.lzh"
-            url="$base/$directory/202611/$file"
-
-            echo "取得先 $url"
-            if curl --fail --show-error --silent --location \
-              --connect-timeout 15 --max-time 45 \
-              --output "$file" "$url" && test -s "$file"; then
-              echo "取得成功 $file ($(wc -c < "$file") バイト)"
-              file "$file"
-            else
-              echo "::error::取得失敗 $file"
-              failed=1
-            fi
+          for kind in B K; do
+            prefix=${kind,,}
+            file="${prefix}${short_day}.lzh"
+            url="https://www1.mbrace.or.jp/od2/$kind/$month/$file"
+            curl --fail --silent --show-error --location \
+              --connect-timeout 15 --max-time 60 --retry 2 \
+              --output "official/$file" "$url"
+            file "official/$file" | grep -qi 'LHa'
+            echo "取得成功 $file"
           done
 
-          exit "$failed"
-                - name: 取得した公式ファイルを保存
+          echo "day=$day" >> "$GITHUB_OUTPUT"
+
+      - name: 取得ファイルを実行結果に保存
         uses: actions/upload-artifact@v4
         with:
-          name: boatrace-20261111
-          path: |
-            b261111.lzh
-            k261111.lzh
+          name: boatrace-${{ steps.fetch.outputs.day }}
+          path: official/*.lzh
           if-no-files-found: error
