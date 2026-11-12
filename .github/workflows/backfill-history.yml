@@ -1,0 +1,93 @@
+name: 過去の番組表と確定結果を収集
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: '取得する日数（最初は30）'
+        required: true
+        default: '30'
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: boatrace-archive
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: 過去データを日付別に保存
+        shell: bash
+        env:
+          DAYS: ${{ inputs.days }}
+          TZ: Asia/Tokyo
+        run: |
+          set -euo pipefail
+          if [[ ! "$DAYS" =~ ^([1-9]|[12][0-9]|30)$ ]]; then
+            echo '日数は1〜30の整数で指定してください'
+            exit 1
+          fi
+
+          temp=$(mktemp -d)
+          trap 'rm -rf "$temp"' EXIT
+          saved=0
+          existing=0
+          failed=0
+
+          for ((i=1; i<=DAYS; i++)); do
+            day=$(date -d "$i days ago" +%Y%m%d)
+            month=${day:0:6}
+            short=${day:2}
+            folder="archive/$month/$day"
+
+            if [[ -s "$folder/b$short.lzh" && -s "$folder/k$short.lzh" ]]; then
+              existing=$((existing + 1))
+              continue
+            fi
+
+            complete=1
+            for kind in B K; do
+              prefix=${kind,,}
+              file="$prefix$short.lzh"
+              url="https://www1.mbrace.or.jp/od2/$kind/$month/$file"
+              if ! curl -fsSL --connect-timeout 15 --max-time 30 \
+                  --retry 1 --retry-max-time 45 \
+                  -o "$temp/$file" "$url" ||
+                  ! file "$temp/$file" | grep -qi 'LHa'; then
+                echo "::warning::$day の $file を取得できませんでした"
+                complete=0
+                break
+              fi
+            done
+
+            if (( complete )); then
+              mkdir -p "$folder"
+              cp "$temp/b$short.lzh" "$temp/k$short.lzh" "$folder/"
+              git add -- "$folder"
+              saved=$((saved + 1))
+              echo "保存 $day"
+            else
+              failed=$((failed + 1))
+            fi
+          done
+
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m "Backfill BOAT RACE archives"
+            git push origin HEAD:main
+          fi
+
+          echo "新規保存 $saved 日 / 保存済み $existing 日 / 取得失敗 $failed 日"
+          if (( failed > 0 )); then
+            exit 1
+          fi
