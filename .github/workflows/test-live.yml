@@ -13,13 +13,32 @@ jobs:
       - name: 大村1Rの公式ページを確認
         shell: bash
         run: |
-          set -euo pipefail
+                     set -u
           base='https://www.boatrace.jp/owpc/pc/race'
           query='hd=20261111&jcd=24&rno=1'
+          failed=0
 
-          curl -fsSL --max-time 45 "$base/beforeinfo?$query" -o beforeinfo.html
-          curl -fsSL --max-time 45 "$base/odds3t?$query" -o odds3t.html
+          for page in beforeinfo odds3t; do
+            echo "=== $page ==="
+            if curl -fsSL --max-time 45 \
+              -w 'HTTP %{http_code} / %{size_download} bytes / %{url_effective}\n' \
+              "$base/$page?$query" -o "$page.html"; then
+              if [ "$page" = beforeinfo ]; then
+                label='展示タイム'
+              else
+                label='3連単|３連単'
+              fi
+              if grep -Eq "$label" "$page.html"; then
+                echo '対象の見出しを確認'
+              else
+                echo 'ページは取得できましたが、対象の見出しが見つかりません'
+                grep -im1 '<title' "$page.html" || true
+                failed=1
+              fi
+            else
+              echo 'ページの取得に失敗'
+              failed=1
+            fi
+          done
 
-          grep -o -m1 '展示タイム' beforeinfo.html
-          grep -o -m1 '3連単オッズ' odds3t.html
-          echo '展示・オッズページの取得テスト成功'
+          exit "$failed"
