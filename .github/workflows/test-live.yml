@@ -13,10 +13,10 @@ jobs:
       - name: 大村1Rの公式ページを確認
         shell: bash
         run: |
-                     set -u
-          base='https://www.boatrace.jp/owpc/pc/race'
-          query='hd=20261111&jcd=24&rno=1'
-          failed=0
+        set -u
+        base='https://www.boatrace.jp/owpc/pc/race'
+        query='hd=20261111&jcd=24&rno=1'
+        failed=0
 
           for page in beforeinfo odds3t; do
             echo "=== $page ==="
