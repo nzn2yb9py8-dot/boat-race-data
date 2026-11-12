@@ -1,0 +1,25 @@
+name: 展示・オッズ取得テスト
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 大村1Rの公式ページを確認
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://www.boatrace.jp/owpc/pc/race'
+          query='hd=20261111&jcd=24&rno=1'
+
+          curl -fsSL --max-time 45 "$base/beforeinfo?$query" -o beforeinfo.html
+          curl -fsSL --max-time 45 "$base/odds3t?$query" -o odds3t.html
+
+          grep -o -m1 '展示タイム' beforeinfo.html
+          grep -o -m1 '3連単オッズ' odds3t.html
+          echo '展示・オッズページの取得テスト成功'
