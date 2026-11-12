@@ -1,4 +1,4 @@
-name: ボートレース公式データの毎日取得
+name: ボートレース公式データの毎日保存
 
 on:
   workflow_dispatch:
@@ -6,14 +6,21 @@ on:
     - cron: '17 21 * * *'
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: boatrace-archive
+  cancel-in-progress: false
 
 jobs:
-  download:
+  archive:
     runs-on: ubuntu-latest
     steps:
-      - name: 前日の番組表と競走成績を取得
-        id: fetch
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: 前日分の公式ファイルを取得して保存
         shell: bash
         run: |
           set -euo pipefail
@@ -21,7 +28,9 @@ jobs:
           day=$(date -d yesterday +%Y%m%d)
           month=${day:0:6}
           short_day=${day:2}
-          mkdir -p official
+          folder="archive/$month/$day"
+          temp=$(mktemp -d)
+          trap 'rm -rf "$temp"' EXIT
 
           for kind in B K; do
             prefix=${kind,,}
@@ -29,16 +38,22 @@ jobs:
             url="https://www1.mbrace.or.jp/od2/$kind/$month/$file"
             curl --fail --silent --show-error --location \
               --connect-timeout 15 --max-time 60 --retry 2 \
-              --output "official/$file" "$url"
-            file "official/$file" | grep -qi 'LHa'
+              --output "$temp/$file" "$url"
+            file "$temp/$file" | grep -qi 'LHa'
             echo "取得成功 $file"
           done
 
-          echo "day=$day" >> "$GITHUB_OUTPUT"
+          mkdir -p "$folder"
+          cp "$temp/"*.lzh "$folder/"
+          git add -- "$folder"
 
-      - name: 取得ファイルを実行結果に保存
-        uses: actions/upload-artifact@v4
-        with:
-          name: boatrace-${{ steps.fetch.outputs.day }}
-          path: official/*.lzh
-          if-no-files-found: error
+          if git diff --cached --quiet; then
+            echo "保存済み $folder"
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "Archive BOAT RACE data for $day"
+          git push origin HEAD:main
+          echo "履歴保存成功 $folder"
