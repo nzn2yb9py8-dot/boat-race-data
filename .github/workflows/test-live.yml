@@ -10,13 +10,13 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: 大村1Rの公式ページを確認
+      - name: 大村1Rの展示と3連単オッズを確認
         shell: bash
         run: |
-        set -u
-        base='https://www.boatrace.jp/owpc/pc/race'
-        query='hd=20261111&jcd=24&rno=1'
-        failed=0
+          set -u
+          base='https://www.boatrace.jp/owpc/pc/race'
+          query='hd=20261111&jcd=24&rno=1'
+          failed=0
 
           for page in beforeinfo odds3t; do
             echo "=== $page ==="
@@ -28,10 +28,11 @@ jobs:
               else
                 label='3連単|３連単'
               fi
+
               if grep -Eq "$label" "$page.html"; then
                 echo '対象の見出しを確認'
               else
-                echo 'ページは取得できましたが、対象の見出しが見つかりません'
+                echo 'ページ取得済み。対象の見出しが見つかりません'
                 grep -im1 '<title' "$page.html" || true
                 failed=1
               fi
