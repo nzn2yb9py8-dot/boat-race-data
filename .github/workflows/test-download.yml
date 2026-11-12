@@ -1,0 +1,38 @@
+name: ボートレース公式データ取得テスト
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 2026年11月11日の番組表と競走成績を取得
+        shell: bash
+        run: |
+          set -u
+          base=https://www1.mbrace.or.jp/od2
+          failed=0
+
+          for item in B:b K:k; do
+            directory=${item%:*}
+            prefix=${item#*:}
+            file="${prefix}261111.lzh"
+            url="$base/$directory/202611/$file"
+
+            echo "取得先 $url"
+            if curl --fail --show-error --silent --location \
+              --connect-timeout 15 --max-time 45 \
+              --output "$file" "$url" && test -s "$file"; then
+              echo "取得成功 $file ($(wc -c < "$file") バイト)"
+              file "$file"
+            else
+              echo "::error::取得失敗 $file"
+              failed=1
+            fi
+          done
+
+          exit "$failed"
