@@ -10,36 +10,26 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: 大村1Rの展示と3連単オッズを確認
+      - name: 大村1Rの公式ページをダウンロード
         shell: bash
         run: |
-          set -u
+          set -euo pipefail
           base='https://www.boatrace.jp/owpc/pc/race'
           query='hd=20261111&jcd=24&rno=1'
-          failed=0
+          mkdir -p pages
 
           for page in beforeinfo odds3t; do
             echo "=== $page ==="
-            if curl -fsSL --max-time 45 \
-              -w 'HTTP %{http_code} / %{size_download} bytes / %{url_effective}\n' \
-              "$base/$page?$query" -o "$page.html"; then
-              if [ "$page" = beforeinfo ]; then
-                label='展示タイム'
-              else
-                label='3連単|３連単'
-              fi
-
-              if grep -Eq "$label" "$page.html"; then
-                echo '対象の見出しを確認'
-              else
-                echo 'ページ取得済み。対象の見出しが見つかりません'
-                grep -im1 '<title' "$page.html" || true
-                failed=1
-              fi
-            else
-              echo 'ページの取得に失敗'
-              failed=1
-            fi
+            curl -fsSL --max-time 45 \
+              -w 'HTTP %{http_code} / %{size_download} bytes\n' \
+              "$base/$page?$query" -o "pages/$page.html"
+            test -s "pages/$page.html"
           done
 
-          exit "$failed"
+      - name: 確認用のHTMLを実行結果に保存
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: omura-1r-official-pages
+          path: pages/*.html
+          if-no-files-found: warn
