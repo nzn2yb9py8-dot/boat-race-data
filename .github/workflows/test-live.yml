@@ -2,34 +2,61 @@ name: 展示・オッズ取得テスト
 
 on:
   workflow_dispatch:
+    inputs:
+      race_date:
+        description: '開催日（例 20261112）'
+        required: true
+        type: string
+      venue:
+        description: '会場コード（18 徳山、24 大村、19 下関、21 芦屋、13 尼崎）'
+        required: true
+        type: choice
+        options:
+          - '18'
+          - '24'
+          - '19'
+          - '21'
+          - '13'
+      race_number:
+        description: 'レース番号（例 8）'
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  test:
+  capture:
     runs-on: ubuntu-latest
     steps:
-      - name: 大村1Rの公式ページをダウンロード
+      - name: 公式ページと取得時刻を保存
         shell: bash
+        env:
+          RACE_DATE: ${{ inputs.race_date }}
+          VENUE: ${{ inputs.venue }}
+          RACE_NUMBER: ${{ inputs.race_number }}
         run: |
           set -euo pipefail
+          [[ "$RACE_DATE" =~ ^[0-9]{8}$ ]]
+          [[ "$VENUE" =~ ^(18|24|19|21|13)$ ]]
+          [[ "$RACE_NUMBER" =~ ^([1-9]|1[0-2])$ ]]
+
           base='https://www.boatrace.jp/owpc/pc/race'
-          query='hd=20261111&jcd=24&rno=1'
+          query="hd=$RACE_DATE&jcd=$VENUE&rno=$RACE_NUMBER"
           mkdir -p pages
 
           for page in beforeinfo odds3t; do
-            echo "=== $page ==="
-            curl -fsSL --max-time 45 \
-              -w 'HTTP %{http_code} / %{size_download} bytes\n' \
-              "$base/$page?$query" -o "pages/$page.html"
+            url="$base/$page?$query"
+            curl -fsSL --max-time 30 "$url" -o "pages/$page.html"
             test -s "pages/$page.html"
+            captured=$(TZ=Asia/Tokyo date --iso-8601=seconds)
+            printf '%s\t%s\t%s\n' "$page" "$captured" "$url" \
+              | tee -a pages/capture.tsv
           done
 
-      - name: 確認用のHTMLを実行結果に保存
-        if: always()
+      - name: 確認用ZIPを保存
         uses: actions/upload-artifact@v4
         with:
-          name: omura-1r-official-pages
-          path: pages/*.html
-          if-no-files-found: warn
+          name: live-race-pages
+          path: pages/
+          if-no-files-found: error
