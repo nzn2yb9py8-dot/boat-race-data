@@ -1,13 +1,7 @@
-name: 過去の番組表と確定結果を収集
+name: ボートレース過去365日分を一括保存
 
 on:
   workflow_dispatch:
-    inputs:
-      days:
-        description: '取得する日数（最初は30）'
-        required: true
-        default: '30'
-        type: string
 
 permissions:
   contents: write
@@ -19,32 +13,41 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
 
-      - name: 過去データを日付別に保存
+      - name: 不足している日付を取得して順次保存
         shell: bash
         env:
-          DAYS: ${{ inputs.days }}
           TZ: Asia/Tokyo
         run: |
           set -euo pipefail
-          if [[ ! "$DAYS" =~ ^([1-9]|[12][0-9]|30)$ ]]; then
-            echo '日数は1〜30の整数で指定してください'
-            exit 1
-          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
           temp=$(mktemp -d)
           trap 'rm -rf "$temp"' EXIT
+          anchor=$(date -d '2026-11-12 12:00:00' +%s)
           saved=0
           existing=0
           failed=0
+          pending=0
 
-          for ((i=1; i<=DAYS; i++)); do
-            day=$(date -d "$i days ago" +%Y%m%d)
+          publish_batch() {
+            if (( pending == 0 )); then
+              return 0
+            fi
+            git commit -m "Save BOAT RACE archives through $day"
+            git push origin HEAD:main
+            echo "GitHubに保存済み 新規 $saved 日"
+            pending=0
+          }
+
+          for ((i=1; i<=365; i++)); do
+            day=$(date -d "@$((anchor - i * 86400))" +%Y%m%d)
             month=${day:0:6}
             short=${day:2}
             folder="archive/$month/$day"
@@ -59,7 +62,8 @@ jobs:
               prefix=${kind,,}
               file="$prefix$short.lzh"
               url="https://www1.mbrace.or.jp/od2/$kind/$month/$file"
-              if ! curl -fsSL --connect-timeout 15 --max-time 30 \
+
+              if ! curl -fsSL --connect-timeout 12 --max-time 30 \
                   --retry 1 --retry-max-time 45 \
                   -o "$temp/$file" "$url" ||
                   ! file "$temp/$file" | grep -qi 'LHa'; then
@@ -74,19 +78,17 @@ jobs:
               cp "$temp/b$short.lzh" "$temp/k$short.lzh" "$folder/"
               git add -- "$folder"
               saved=$((saved + 1))
-              echo "保存 $day"
+              pending=$((pending + 1))
+              echo "取得 $day"
+              if (( pending >= 10 )); then
+                publish_batch
+              fi
             else
               failed=$((failed + 1))
             fi
           done
 
-          if ! git diff --cached --quiet; then
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m "Backfill BOAT RACE archives"
-            git push origin HEAD:main
-          fi
-
+          publish_batch
           echo "新規保存 $saved 日 / 保存済み $existing 日 / 取得失敗 $failed 日"
           if (( failed > 0 )); then
             exit 1
